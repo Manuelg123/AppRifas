@@ -1,10 +1,24 @@
 {
-  "name": "RifaSync",
-  "short_name": "RifaSync",
-  "description": "Control y sincronización de rifas para vendedores",
+  "name": "App Rifa",
+  "short_name": "App Rifa",
+  "description": "Control y organización sencilla de rifas",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f4f7fb",
-  "theme_color": "#03206b"
+  "background_color": "#ffffff",
+  "theme_color": "#03206b",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

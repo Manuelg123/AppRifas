@@ -1,20 +1,48 @@
 import { getRangeList, getPairedLabel } from './pairs.js';
-import { loadDb, saveDb } from './state.js';
+import {
+  createRaffleInCloud,
+  getRaffleOnce,
+  subscribeToRaffle,
+  updateRaffleInCloud
+} from './state.js';
 
-let db = loadDb();
+let currentRaffle = null;
 let activeRaffleId = null;
 let activeVendor = '';
 let currentFilter = 'all';
 let selectedLabel = null;
+let unsubscribeRaffle = null;
 
 function showToast(msg) {
   const toast = document.getElementById('toast');
+  if (!toast) return;
   toast.textContent = msg;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
-function createRaffle() {
+function normalizeRaffleData(raffle) {
+  if (!raffle) return null;
+  if (!raffle.rangeCfg || !Array.isArray(raffle.rangeCfg.list)) {
+    raffle.rangeCfg = getRangeList(raffle.rangeKey || '1-100');
+  }
+  if (!raffle.numbers || typeof raffle.numbers !== 'object') {
+    raffle.numbers = {};
+    raffle.rangeCfg.list.forEach(n => {
+      raffle.numbers[n.label] = {
+        status: 'libre',
+        ticketId: null,
+        pair: raffle.mode === 2 ? getPairedLabel(n, raffle.rangeCfg) : null
+      };
+    });
+  }
+  if (!raffle.tickets || typeof raffle.tickets !== 'object') {
+    raffle.tickets = {};
+  }
+  return raffle;
+}
+
+async function createRaffle() {
   const title = document.getElementById('rifaTitle').value.trim() || 'Rifa sin título';
   const rangeKey = document.getElementById('rifaRange').value;
   const mode = Number(document.getElementById('rifaMode').value);
@@ -33,7 +61,7 @@ function createRaffle() {
     };
   });
 
-  db[code] = {
+  const raffleData = {
     id: code,
     title,
     rangeKey,
@@ -44,32 +72,49 @@ function createRaffle() {
     tickets: {}
   };
 
-  saveDb(db);
-  openBoard(code, vendor);
+  try {
+    await createRaffleInCloud(code, raffleData);
+    currentRaffle = raffleData;
+    openBoard(code, vendor);
+    showToast(`Rifa ${code} creada`);
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo crear la rifa en la nube. Revisa tu conexión o las reglas de Firebase.');
+  }
 }
 
-function joinRaffle() {
+async function joinRaffle() {
   const code = document.getElementById('joinCode').value.trim().toUpperCase();
   const vendor = document.getElementById('joinVendor').value.trim() || 'Vendedor';
 
-  if (!db[code]) {
-    alert('No se encontró una rifa con ese código en este dispositivo.');
+  if (!code) {
+    alert('Escribe el código de la rifa (ej. RIFA-101).');
     return;
   }
 
-  openBoard(code, vendor);
+  try {
+    const raffle = await getRaffleOnce(code);
+    if (!raffle) {
+      alert('No se encontró una rifa con ese código.');
+      return;
+    }
+    currentRaffle = normalizeRaffleData(raffle);
+    openBoard(code, vendor);
+  } catch (err) {
+    console.error(err);
+    alert('Error al buscar la rifa. Revisa tu conexión.');
+  }
 }
 
 function shareRaffleCode() {
-  if (!activeRaffleId) return;
-  const raffle = db[activeRaffleId];
-  const text = `Únete a vender la rifa "${raffle.title}" en RifaSync.\nCódigo: ${raffle.id}`;
+  if (!activeRaffleId || !currentRaffle) return;
+  const text = `Únete a vender la rifa "${currentRaffle.title}" en App Rifa.\nCódigo: ${currentRaffle.id}`;
 
   if (navigator.share) {
-    navigator.share({ title: raffle.title, text }).catch(() => {});
+    navigator.share({ title: currentRaffle.title, text }).catch(() => {});
   } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(raffle.id);
-    showToast(`Código ${raffle.id} copiado`);
+    navigator.clipboard.writeText(currentRaffle.id);
+    showToast(`Código ${currentRaffle.id} copiado`);
   }
 }
 
@@ -77,6 +122,11 @@ function openBoard(code, vendor) {
   activeRaffleId = code;
   activeVendor = vendor;
   currentFilter = 'all';
+
+  if (unsubscribeRaffle) {
+    unsubscribeRaffle();
+    unsubscribeRaffle = null;
+  }
 
   document.querySelectorAll('.chip').forEach(c => {
     c.classList.toggle('active', c.dataset.filter === 'all');
@@ -87,14 +137,27 @@ function openBoard(code, vendor) {
   document.getElementById('viewBoard').classList.remove('hidden');
   document.getElementById('headerInfo').textContent = `${code} · ${vendor}`;
 
-  renderBoard();
+  if (currentRaffle) {
+    renderBoard();
+  }
+
+  unsubscribeRaffle = subscribeToRaffle(code, (data) => {
+    if (!data || activeRaffleId !== code) return;
+    currentRaffle = normalizeRaffleData(data);
+    renderBoard();
+  });
 }
 
 function goHome() {
+  if (unsubscribeRaffle) {
+    unsubscribeRaffle();
+    unsubscribeRaffle = null;
+  }
   activeRaffleId = null;
+  currentRaffle = null;
   document.getElementById('viewBoard').classList.add('hidden');
   document.getElementById('viewHome').classList.remove('hidden');
-  document.getElementById('headerInfo').textContent = 'App Móvil';
+  document.getElementById('headerInfo').textContent = 'En línea';
 }
 
 function setFilter(filter, el) {
@@ -105,22 +168,22 @@ function setFilter(filter, el) {
 }
 
 function renderBoard() {
-  const raffle = db[activeRaffleId];
-  document.getElementById('boardTitle').textContent = raffle.title;
+  if (!currentRaffle) return;
+  document.getElementById('boardTitle').textContent = currentRaffle.title;
   document.getElementById('boardMeta').textContent =
-    `${raffle.id} · ${raffle.rangeKey} · ${raffle.mode === 2 ? 'Doble' : 'Sencilla'} · $${raffle.price}`;
+    `${currentRaffle.id} · ${currentRaffle.rangeKey} · ${currentRaffle.mode === 2 ? 'Doble' : 'Sencilla'} · $${currentRaffle.price}`;
 
-  updateStats(raffle);
+  updateStats(currentRaffle);
   renderGrid();
 }
 
 function updateStats(raffle) {
-  const entries = Object.values(raffle.numbers);
+  const entries = Object.values(raffle.numbers || {});
   const freeNums = entries.filter(x => x.status === 'libre').length;
   const reservedNums = entries.filter(x => x.status === 'apartado').length;
   const paidNums = entries.filter(x => x.status === 'pagado').length;
 
-  const tickets = Object.values(raffle.tickets);
+  const tickets = Object.values(raffle.tickets || {});
   const paidTickets = tickets.filter(t => t.status === 'pagado').length;
 
   document.getElementById('stFree').textContent = freeNums;
@@ -130,37 +193,41 @@ function updateStats(raffle) {
 }
 
 function renderGrid() {
-  const raffle = db[activeRaffleId];
+  if (!currentRaffle) return;
   const query = document.getElementById('searchNum').value.trim().toLowerCase();
   const grid = document.getElementById('numbersGrid');
   grid.innerHTML = '';
 
-  raffle.rangeCfg.list.forEach(item => {
-    const info = raffle.numbers[item.label];
+  currentRaffle.rangeCfg.list.forEach(item => {
+    const info = currentRaffle.numbers[item.label];
+    if (!info) return;
     if (currentFilter !== 'all' && info.status !== currentFilter) return;
     if (query && !item.label.toLowerCase().includes(query)) return;
 
     const btn = document.createElement('button');
     btn.className = `num-btn ${info.status}`;
     const subText = info.status === 'libre'
-      ? (info.pair ? `↔${info.pair}` : 'Libre')
-      : info.status.toUpperCase();
+      ? (info.pair ? `↔${info.pair}` : '')
+      : (info.status === 'pagado' ? 'Pagado' : 'Apartado');
 
-    btn.innerHTML = `<span>${item.label}</span><span class="num-sub">${subText}</span>`;
+    btn.innerHTML = subText
+      ? `<span>${item.label}</span><span class="num-sub">${subText}</span>`
+      : `<span>${item.label}</span>`;
+
     btn.onclick = () => openModal(item.label);
     grid.appendChild(btn);
   });
 }
 
 function openModal(label) {
-  const raffle = db[activeRaffleId];
+  if (!currentRaffle) return;
   selectedLabel = label;
-  const info = raffle.numbers[label];
+  const info = currentRaffle.numbers[label];
   const pairBox = document.getElementById('modalPairInfo');
 
   document.getElementById('modalTitle').textContent = `Número ${label}`;
 
-  if (raffle.mode === 2 && info.pair) {
+  if (currentRaffle.mode === 2 && info.pair) {
     pairBox.textContent = `Doble oportunidad: incluye el ${label} y su pareja ${info.pair}.`;
     pairBox.classList.remove('hidden');
   } else {
@@ -173,21 +240,23 @@ function openModal(label) {
     document.getElementById('registerForm').classList.remove('hidden');
     document.getElementById('manageForm').classList.add('hidden');
   } else {
-    const ticket = raffle.tickets[info.ticketId];
+    const ticket = currentRaffle.tickets?.[info.ticketId];
     document.getElementById('registerForm').classList.add('hidden');
     document.getElementById('manageForm').classList.remove('hidden');
 
-    document.getElementById('ticketDetails').innerHTML = `
-      <strong>Números:</strong> ${ticket.numbers.join(' y ')}<br/>
-      <strong>Estado:</strong> ${ticket.status.toUpperCase()}<br/>
-      <strong>Comprador:</strong> ${ticket.buyerName}<br/>
-      <strong>Teléfono:</strong> ${ticket.buyerPhone || 'No registrado'}<br/>
-      <strong>Vendedor:</strong> ${ticket.vendor}
-    `;
+    if (ticket) {
+      document.getElementById('ticketDetails').innerHTML = `
+        <strong>Números:</strong> ${ticket.numbers.join(' y ')}<br/>
+        <strong>Estado:</strong> ${ticket.status.toUpperCase()}<br/>
+        <strong>Comprador:</strong> ${ticket.buyerName}<br/>
+        <strong>Teléfono:</strong> ${ticket.buyerPhone || 'No registrado'}<br/>
+        <strong>Vendedor:</strong> ${ticket.vendor}
+      `;
+    }
 
     const actionsDiv = document.getElementById('manageActions');
     actionsDiv.innerHTML = '';
-    if (ticket.status === 'apartado') {
+    if (ticket && ticket.status === 'apartado') {
       const payBtn = document.createElement('button');
       payBtn.className = 'btn btn-success';
       payBtn.textContent = 'Confirmar Pago';
@@ -212,8 +281,8 @@ function getGroupLabels(raffle, label) {
   return [label];
 }
 
-function saveTicket(status) {
-  const raffle = db[activeRaffleId];
+async function saveTicket(status) {
+  if (!currentRaffle || !selectedLabel) return;
   const buyerName = document.getElementById('buyerName').value.trim();
   const buyerPhone = document.getElementById('buyerPhone').value.trim();
 
@@ -222,10 +291,10 @@ function saveTicket(status) {
     return;
   }
 
-  const group = getGroupLabels(raffle, selectedLabel);
+  const group = getGroupLabels(currentRaffle, selectedLabel);
   const ticketId = 'T-' + Date.now();
 
-  raffle.tickets[ticketId] = {
+  currentRaffle.tickets[ticketId] = {
     id: ticketId,
     numbers: group,
     buyerName,
@@ -236,52 +305,71 @@ function saveTicket(status) {
   };
 
   group.forEach(num => {
-    raffle.numbers[num].status = status;
-    raffle.numbers[num].ticketId = ticketId;
+    currentRaffle.numbers[num].status = status;
+    currentRaffle.numbers[num].ticketId = ticketId;
   });
 
-  saveDb(db);
-  closeModal();
-  renderBoard();
-  showToast(status === 'pagado' ? 'Boleto pagado' : 'Boleto apartado');
+  try {
+    await updateRaffleInCloud(activeRaffleId, currentRaffle);
+    closeModal();
+    renderBoard();
+    showToast(status === 'pagado' ? 'Boleto pagado' : 'Boleto apartado');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo guardar en la nube.');
+  }
 }
 
-function confirmPayment() {
-  const raffle = db[activeRaffleId];
-  const ticketId = raffle.numbers[selectedLabel].ticketId;
-  const ticket = raffle.tickets[ticketId];
+async function confirmPayment() {
+  if (!currentRaffle || !selectedLabel) return;
+  const ticketId = currentRaffle.numbers[selectedLabel].ticketId;
+  const ticket = currentRaffle.tickets[ticketId];
+  if (!ticket) return;
 
   ticket.status = 'pagado';
   ticket.updatedAt = new Date().toISOString();
 
   ticket.numbers.forEach(num => {
-    raffle.numbers[num].status = 'pagado';
+    currentRaffle.numbers[num].status = 'pagado';
   });
 
-  saveDb(db);
-  closeModal();
-  renderBoard();
-  showToast('Pago confirmado');
+  try {
+    await updateRaffleInCloud(activeRaffleId, currentRaffle);
+    closeModal();
+    renderBoard();
+    showToast('Pago confirmado');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo confirmar el pago en la nube.');
+  }
 }
 
-function releaseTicket() {
-  const raffle = db[activeRaffleId];
-  const info = raffle.numbers[selectedLabel];
+async function releaseTicket() {
+  if (!currentRaffle || !selectedLabel) return;
+  const info = currentRaffle.numbers[selectedLabel];
   const ticketId = info.ticketId;
-  const ticket = raffle.tickets[ticketId];
+  const ticket = currentRaffle.tickets[ticketId];
 
   if (ticket) {
     ticket.numbers.forEach(num => {
-      raffle.numbers[num].status = 'libre';
-      raffle.numbers[num].ticketId = null;
+      currentRaffle.numbers[num].status = 'libre';
+      currentRaffle.numbers[num].ticketId = null;
     });
-    delete raffle.tickets[ticketId];
+    delete currentRaffle.tickets[ticketId];
+  } else {
+    info.status = 'libre';
+    info.ticketId = null;
   }
 
-  saveDb(db);
-  closeModal();
-  renderBoard();
-  showToast('Número(s) liberados');
+  try {
+    await updateRaffleInCloud(activeRaffleId, currentRaffle);
+    closeModal();
+    renderBoard();
+    showToast('Número(s) liberados');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo liberar el número en la nube.');
+  }
 }
 
 // Eventos

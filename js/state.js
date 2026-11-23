@@ -1,9 +1,32 @@
-const STORAGE_KEY = 'rifasync_prototype_v1';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  onValue
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+import { firebaseConfig } from './firebase-config.js';
 
-export function loadDb() {
-  return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+export async function createRaffleInCloud(code, raffleData) {
+  await set(ref(db, `raffles/${code}`), raffleData);
 }
 
-export function saveDb(db) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+export async function getRaffleOnce(code) {
+  const snapshot = await get(ref(db, `raffles/${code}`));
+  return snapshot.exists() ? snapshot.val() : null;
+}
+
+export function subscribeToRaffle(code, callback) {
+  const raffleRef = ref(db, `raffles/${code}`);
+  return onValue(raffleRef, (snapshot) => {
+    callback(snapshot.exists() ? snapshot.val() : null);
+  });
+}
+
+export async function updateRaffleInCloud(code, raffleData) {
+  await set(ref(db, `raffles/${code}`), raffleData);
 }

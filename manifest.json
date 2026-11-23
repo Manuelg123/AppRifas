@@ -1,0 +1,10 @@
+{
+  "name": "RifaSync",
+  "short_name": "RifaSync",
+  "description": "Control y sincronización de rifas para vendedores",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f7fb",
+  "theme_color": "#03206b"
+}

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#03206b" />
+  <title>RifaSync</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+  <link rel="manifest" href="./manifest.json" />
+</head>
+<body>
+
+<div class="app-shell">
+  <header>
+    <h1>RifaSync</h1>
+    <div id="headerInfo" class="badge">App Móvil</div>
+  </header>
+
+  <div class="container">
+    <!-- PANTALLA 1: INICIO -->
+    <section id="viewHome">
+      <div class="card">
+        <h2>Crear nueva rifa</h2>
+        <label>Nombre de la rifa</label>
+        <input id="rifaTitle" placeholder="Ej. Rifa Pro-Fondos" />
+
+        <div class="row">
+          <div>
+            <label>Rango</label>
+            <select id="rifaRange">
+              <option value="0-99">00 al 99</option>
+              <option value="1-100" selected>1 al 100</option>
+              <option value="0-999">000 al 999</option>
+              <option value="1-1000">1 al 1000</option>
+            </select>
+          </div>
+          <div>
+            <label>Modalidad</label>
+            <select id="rifaMode">
+              <option value="1" selected>Sencilla (1 núm)</option>
+              <option value="2">Doble (Pareja)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Precio ($)</label>
+            <input id="rifaPrice" type="number" min="0.1" step="0.1" value="2" />
+          </div>
+          <div>
+            <label>Tu nombre</label>
+            <input id="creatorName" placeholder="Ej. Carlos" />
+          </div>
+        </div>
+
+        <button id="btnCreateRaffle" class="btn btn-primary">Crear y abrir talonario</button>
+      </div>
+
+      <div class="card">
+        <h2>Unirme a una rifa</h2>
+        <label>Código de rifa</label>
+        <input id="joinCode" placeholder="Ej. RIFA-101" />
+        <label>Tu nombre como vendedor</label>
+        <input id="joinVendor" placeholder="Ej. Ana" />
+        <button id="btnJoinRaffle" class="btn btn-secondary">Entrar al talonario</button>
+      </div>
+    </section>
+
+    <!-- PANTALLA 2: TALONARIO -->
+    <section id="viewBoard" class="hidden">
+      <div class="card">
+        <div class="board-top">
+          <div>
+            <h2 id="boardTitle" style="margin:0 0 2px;"></h2>
+            <small id="boardMeta" style="color:var(--muted);"></small>
+          </div>
+          <div class="board-actions">
+            <button id="btnShareCode" class="btn btn-primary btn-sm">Invitar</button>
+            <button id="btnGoHome" class="btn btn-secondary btn-sm">Salir</button>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-box">
+            <div id="stFree" class="stat-val">0</div>
+            <div class="stat-lbl">Libres</div>
+          </div>
+          <div class="stat-box">
+            <div id="stReserved" class="stat-val">0</div>
+            <div class="stat-lbl">Apartados</div>
+          </div>
+          <div class="stat-box">
+            <div id="stPaid" class="stat-val">0</div>
+            <div class="stat-lbl">Pagados</div>
+          </div>
+          <div class="stat-box">
+            <div id="stMoney" class="stat-val">$0</div>
+            <div class="stat-lbl">Cobrado</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <input id="searchNum" type="search" inputmode="numeric" placeholder="Buscar número..." />
+          <div class="filters">
+            <button class="chip active" data-filter="all">Todos</button>
+            <button class="chip" data-filter="libre">Libres</button>
+            <button class="chip" data-filter="apartado">Apartados</button>
+            <button class="chip" data-filter="pagado">Pagados</button>
+          </div>
+        </div>
+        <div id="numbersGrid" class="grid"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- MODAL BOTTOM SHEET -->
+<div id="modalBackdrop" class="modal-backdrop">
+  <div class="modal">
+    <h3 id="modalTitle" style="margin-top:0;"></h3>
+    <div id="modalPairInfo" class="pair-box hidden"></div>
+
+    <div id="registerForm">
+      <label>Nombre del comprador</label>
+      <input id="buyerName" placeholder="Nombre completo" />
+      <label>Teléfono / WhatsApp (opcional)</label>
+      <input id="buyerPhone" type="tel" placeholder="Ej. 0414-0000000" />
+      <div class="row">
+        <button id="btnSaveReserved" class="btn btn-warning">Apartar</button>
+        <button id="btnSavePaid" class="btn btn-success">Marcar Pagado</button>
+      </div>
+    </div>
+
+    <div id="manageForm" class="hidden">
+      <p id="ticketDetails" style="font-size:0.9rem; line-height:1.5; margin-top:0;"></p>
+      <div id="manageActions" class="row" style="margin-bottom:8px;"></div>
+      <button id="btnReleaseTicket" class="btn btn-danger">Liberar número(s)</button>
+    </div>
+
+    <button id="btnCloseModal" class="btn btn-secondary" style="margin-top:10px;">Cerrar</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="./js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>

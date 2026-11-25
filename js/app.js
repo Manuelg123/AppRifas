@@ -454,3 +454,65 @@ document.querySelectorAll('.accordion-card').forEach(card => {
     }
   });
 });
+
+// Instalación PWA y enlace de invitación para descargar
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  showToast('App Rifa instalada correctamente');
+});
+
+const btnInstallApp = document.getElementById('btnInstallApp');
+if (btnInstallApp) {
+  btnInstallApp.addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') {
+        deferredInstallPrompt = null;
+      }
+      return;
+    }
+
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true;
+
+    if (isStandalone) {
+      showToast('Ya tienes la app instalada');
+      return;
+    }
+
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (isIOS) {
+      alert('En iPhone/iPad: toca el botón Compartir (cuadro con flecha arriba) y selecciona "Agregar a pantalla de inicio".');
+    } else {
+      alert('Abre el menú de tu navegador (⋮) y toca "Instalar aplicación" o "Agregar a la pantalla principal".');
+    }
+  });
+}
+
+const btnShareApp = document.getElementById('btnShareApp');
+if (btnShareApp) {
+  btnShareApp.addEventListener('click', async () => {
+    const appUrl = window.location.origin + window.location.pathname;
+    const shareData = {
+      title: 'App Rifa',
+      text: 'Descarga e instala App Rifa para llevar el control de tus talonarios en tiempo real:',
+      url: appUrl
+    };
+
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {});
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(appUrl);
+      showToast('Enlace de descarga copiado');
+    }
+  });
+}

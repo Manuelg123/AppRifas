@@ -150,3 +150,286 @@ function shareRaffleCode() {
   if (navigator.share) {
     navigator.share({ title: currentRaffle.title, text }).catch(() => {});
   } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(currentRaffle.id);
+    showToast(`Código ${currentRaffle.id} copiado`);
+  }
+}
+
+function openBoard(code, vendor) {
+  activeRaffleId = code;
+  activeVendor = vendor;
+  currentFilter = 'all';
+
+  if (unsubscribeRaffle) {
+    unsubscribeRaffle();
+    unsubscribeRaffle = null;
+  }
+
+  document.querySelectorAll('.chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filter === 'all');
+  });
+  document.getElementById('searchNum').value = '';
+
+  document.getElementById('viewHome').classList.add('hidden');
+  document.getElementById('viewBoard').classList.remove('hidden');
+  document.getElementById('headerInfo').textContent = `${code} · ${vendor}`;
+
+  if (currentRaffle) {
+    renderBoard();
+  }
+
+  unsubscribeRaffle = subscribeToRaffle(code, (data) => {
+    if (!data || activeRaffleId !== code) return;
+    currentRaffle = normalizeRaffleData(data);
+    renderBoard();
+  });
+}
+
+function goHome() {
+  if (unsubscribeRaffle) {
+    unsubscribeRaffle();
+    unsubscribeRaffle = null;
+  }
+  activeRaffleId = null;
+  currentRaffle = null;
+  document.getElementById('viewBoard').classList.add('hidden');
+  document.getElementById('viewHome').classList.remove('hidden');
+  document.getElementById('headerInfo').textContent = 'En línea';
+}
+
+function setFilter(filter, el) {
+  currentFilter = filter;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderGrid();
+}
+
+function renderBoard() {
+  if (!currentRaffle) return;
+  document.getElementById('boardTitle').textContent = currentRaffle.title;
+  document.getElementById('boardMeta').textContent =
+    `${currentRaffle.id} · ${currentRaffle.rangeKey} · ${currentRaffle.mode === 2 ? 'Doble' : 'Sencilla'} · $${currentRaffle.price}`;
+
+  updateStats(currentRaffle);
+  renderGrid();
+}
+
+function updateStats(raffle) {
+  const entries = Object.values(raffle.numbers || {});
+  const freeNums = entries.filter(x => x.status === 'libre').length;
+  const reservedNums = entries.filter(x => x.status === 'apartado').length;
+  const paidNums = entries.filter(x => x.status === 'pagado').length;
+
+  const tickets = Object.values(raffle.tickets || {});
+  const paidTickets = tickets.filter(t => t.status === 'pagado').length;
+
+  document.getElementById('stFree').textContent = freeNums;
+  document.getElementById('stReserved').textContent = reservedNums;
+  document.getElementById('stPaid').textContent = paidNums;
+  document.getElementById('stMoney').textContent = '$' + (paidTickets * raffle.price).toFixed(2);
+}
+
+function renderGrid() {
+  if (!currentRaffle) return;
+  const query = document.getElementById('searchNum').value.trim().toLowerCase();
+  const grid = document.getElementById('numbersGrid');
+  grid.innerHTML = '';
+
+  currentRaffle.rangeCfg.list.forEach(item => {
+    const info = currentRaffle.numbers[item.label];
+    if (!info) return;
+    if (currentFilter !== 'all' && info.status !== currentFilter) return;
+    if (query && !item.label.toLowerCase().includes(query)) return;
+
+    const btn = document.createElement('button');
+    btn.className = `num-btn ${info.status}`;
+    const subText = info.status === 'libre'
+      ? (info.pair ? `↔${info.pair}` : '')
+      : (info.status === 'pagado' ? 'Pagado' : 'Apartado');
+
+    btn.innerHTML = subText
+      ? `<span>${item.label}</span><span class="num-sub">${subText}</span>`
+      : `<span>${item.label}</span>`;
+
+    btn.onclick = () => openModal(item.label);
+    grid.appendChild(btn);
+  });
+}
+
+function openModal(label) {
+  if (!currentRaffle) return;
+  selectedLabel = label;
+  const info = currentRaffle.numbers[label];
+  const pairBox = document.getElementById('modalPairInfo');
+
+  document.getElementById('modalTitle').textContent = `Número ${label}`;
+
+  if (currentRaffle.mode === 2 && info.pair) {
+    pairBox.textContent = `Doble oportunidad: incluye el ${label} y su pareja ${info.pair}.`;
+    pairBox.classList.remove('hidden');
+  } else {
+    pairBox.classList.add('hidden');
+  }
+
+  if (info.status === 'libre') {
+    document.getElementById('buyerName').value = '';
+    document.getElementById('buyerPhone').value = '';
+    document.getElementById('registerForm').classList.remove('hidden');
+    document.getElementById('manageForm').classList.add('hidden');
+  } else {
+    const ticket = currentRaffle.tickets?.[info.ticketId];
+    document.getElementById('registerForm').classList.add('hidden');
+    document.getElementById('manageForm').classList.remove('hidden');
+
+    if (ticket) {
+      document.getElementById('ticketDetails').innerHTML = `
+        <strong>Números:</strong> ${ticket.numbers.join(' y ')}<br/>
+        <strong>Estado:</strong> ${ticket.status.toUpperCase()}<br/>
+        <strong>Comprador:</strong> ${ticket.buyerName}<br/>
+        <strong>Teléfono:</strong> ${ticket.buyerPhone || 'No registrado'}<br/>
+        <strong>Vendedor:</strong> ${ticket.vendor}
+      `;
+    }
+
+    const actionsDiv = document.getElementById('manageActions');
+    actionsDiv.innerHTML = '';
+    if (ticket && ticket.status === 'apartado') {
+      const payBtn = document.createElement('button');
+      payBtn.className = 'btn btn-success';
+      payBtn.textContent = 'Confirmar Pago';
+      payBtn.onclick = confirmPayment;
+      actionsDiv.appendChild(payBtn);
+    }
+  }
+
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  selectedLabel = null;
+}
+
+function getGroupLabels(raffle, label) {
+  const info = raffle.numbers[label];
+  if (raffle.mode === 2 && info.pair && raffle.numbers[info.pair]?.status === 'libre') {
+    return [label, info.pair];
+  }
+  return [label];
+}
+
+async function saveTicket(status) {
+  if (!currentRaffle || !selectedLabel) return;
+  const buyerName = document.getElementById('buyerName').value.trim();
+  const buyerPhone = document.getElementById('buyerPhone').value.trim();
+
+  if (!buyerName) {
+    alert('Escribe el nombre del comprador.');
+    return;
+  }
+
+  const group = getGroupLabels(currentRaffle, selectedLabel);
+  const ticketId = 'T-' + Date.now();
+
+  currentRaffle.tickets[ticketId] = {
+    id: ticketId,
+    numbers: group,
+    buyerName,
+    buyerPhone,
+    vendor: activeVendor,
+    status,
+    updatedAt: new Date().toISOString()
+  };
+
+  group.forEach(num => {
+    currentRaffle.numbers[num].status = status;
+    currentRaffle.numbers[num].ticketId = ticketId;
+  });
+
+  try {
+    const cleanData = { ...currentRaffle };
+    delete cleanData.rangeCfg;
+    await updateRaffleInCloud(activeRaffleId, cleanData);
+    closeModal();
+    renderBoard();
+    showToast(status === 'pagado' ? 'Boleto pagado' : 'Boleto apartado');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo guardar en la nube.');
+  }
+}
+
+async function confirmPayment() {
+  if (!currentRaffle || !selectedLabel) return;
+  const ticketId = currentRaffle.numbers[selectedLabel].ticketId;
+  const ticket = currentRaffle.tickets[ticketId];
+  if (!ticket) return;
+
+  ticket.status = 'pagado';
+  ticket.updatedAt = new Date().toISOString();
+
+  ticket.numbers.forEach(num => {
+    currentRaffle.numbers[num].status = 'pagado';
+  });
+
+  try {
+    const cleanData = { ...currentRaffle };
+    delete cleanData.rangeCfg;
+    await updateRaffleInCloud(activeRaffleId, cleanData);
+    closeModal();
+    renderBoard();
+    showToast('Pago confirmado');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo confirmar el pago en la nube.');
+  }
+}
+
+async function releaseTicket() {
+  if (!currentRaffle || !selectedLabel) return;
+  const info = currentRaffle.numbers[selectedLabel];
+  const ticketId = info.ticketId;
+  const ticket = currentRaffle.tickets[ticketId];
+
+  if (ticket) {
+    ticket.numbers.forEach(num => {
+      currentRaffle.numbers[num].status = 'libre';
+      currentRaffle.numbers[num].ticketId = null;
+    });
+    delete currentRaffle.tickets[ticketId];
+  } else {
+    info.status = 'libre';
+    info.ticketId = null;
+  }
+
+  try {
+    const cleanData = { ...currentRaffle };
+    delete cleanData.rangeCfg;
+    await updateRaffleInCloud(activeRaffleId, cleanData);
+    closeModal();
+    renderBoard();
+    showToast('Número(s) liberados');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo liberar el número en la nube.');
+  }
+}
+
+// Eventos
+document.getElementById('btnCreateRaffle').addEventListener('click', createRaffle);
+document.getElementById('btnJoinRaffle').addEventListener('click', joinRaffle);
+document.getElementById('btnShareCode').addEventListener('click', shareRaffleCode);
+document.getElementById('btnGoHome').addEventListener('click', goHome);
+document.getElementById('btnSaveReserved').addEventListener('click', () => saveTicket('apartado'));
+document.getElementById('btnSavePaid').addEventListener('click', () => saveTicket('pagado'));
+document.getElementById('btnReleaseTicket').addEventListener('click', releaseTicket);
+document.getElementById('btnCloseModal').addEventListener('click', closeModal);
+document.getElementById('searchNum').addEventListener('input', renderGrid);
+
+document.getElementById('modalBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'modalBackdrop') closeModal();
+});
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => setFilter(chip.dataset.filter, chip));
+});

@@ -433,3 +433,24 @@ document.getElementById('modalBackdrop').addEventListener('click', (e) => {
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => setFilter(chip.dataset.filter, chip));
 });
+
+// Acordeones de inicio (Crear / Unirse)
+document.querySelectorAll('.accordion-card').forEach(card => {
+  const trigger = card.querySelector('.accordion-trigger');
+  if (!trigger) return;
+
+  trigger.addEventListener('click', () => {
+    const isOpen = card.classList.contains('open');
+
+    document.querySelectorAll('.accordion-card').forEach(other => {
+      other.classList.remove('open');
+      const otherBtn = other.querySelector('.accordion-trigger');
+      if (otherBtn) otherBtn.setAttribute('aria-expanded', 'false');
+    });
+
+    if (!isOpen) {
+      card.classList.add('open');
+      trigger.setAttribute('aria-expanded', 'true');
+    }
+  });
+});
